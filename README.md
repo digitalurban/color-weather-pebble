@@ -1,4 +1,4 @@
-![Color Weather](colorwatch.png)
+![Color Weather](colorweather.png)
 
 # Color Weather - Pebble Time 2
 
