@@ -209,6 +209,12 @@ different apps rather than an upgrade.
 
 ## Version history
 
+Pebble's `versionLabel` carries only major.minor, so everything below ships to
+the appstore as **2.3** regardless of the patch number in `package.json`. The
+store cannot tell these builds apart - the settings page prints the full version
+of the JavaScript that is actually running, which can.
+
+
 - **2.3.5** — the station status line now reports the values actually applied,
   not just which source won.
 - **2.3.4** — show the running version at the top of the settings page, so
