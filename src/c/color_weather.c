@@ -25,6 +25,8 @@
 #define MESSAGE_KEY_WEATHER_ICON 20
 #define MESSAGE_KEY_UV 21
 #define MESSAGE_KEY_TEXT_COLOR 22
+// 1 when the pressure came from the user's own weather station, 0 from the model
+#define MESSAGE_KEY_PRESSURE_SOURCE 23
 
 static Window *s_main_window;
 static TextLayer *s_time_layer;
@@ -99,6 +101,7 @@ static char s_location_buffer[128];  // Buffer for location string
 static bool s_hourly_vibration_enabled = false;
 static bool s_update_countdown_enabled = true;
 static bool s_storm_warning_enabled = false; // Experimental storm warning feature
+static bool s_pressure_from_pws = false; // Pressure came from the user's own station
 static int s_last_hour = -1;
 
 // Storm warning state tracking
@@ -322,6 +325,13 @@ static void inbox_received_callback(DictionaryIterator *iterator, void *context)
   int pressure_val = 0;
   char trend_suffix[32] = "";
 
+  // Read the pressure source before the trend string is built, so the pressure
+  // row can say whose barometer this is.
+  Tuple *pressure_source_tuple = dict_find(iterator, MESSAGE_KEY_PRESSURE_SOURCE);
+  if (pressure_source_tuple && pressure_source_tuple->type == TUPLE_INT) {
+    s_pressure_from_pws = (pressure_source_tuple->value->int32 != 0);
+  }
+
   if (loc_tuple && loc_tuple->type == TUPLE_CSTRING) {
     snprintf(location_name, sizeof(location_name), "%s", loc_tuple->value->cstring);
   } else {
@@ -394,6 +404,13 @@ static void inbox_received_callback(DictionaryIterator *iterator, void *context)
           snprintf(trend_arrow, sizeof(trend_arrow), "v");
         } else if (t <= -1) {
           trend_text = "Falling"; // Very slow
+        }
+
+        // When the reading is from the user's own station, that is worth more
+        // than the word: the arrow already says which way the pressure is
+        // going, so the same slot carries the source instead. Costs no width.
+        if (s_pressure_from_pws) {
+          trend_text = "PWS";
         }
 
         (void)trend_text; // Prevent "unused variable" error on non-Emery platforms

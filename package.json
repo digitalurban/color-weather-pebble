@@ -1,7 +1,7 @@
 {
   "name": "color-weather",
   "author": "Digital Urban",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "keywords": [
     "pebble-app"
   ],
@@ -59,7 +59,11 @@
       "STEP_COUNT": 16,
       "STEP_DISTANCE": 17,
       "STORM_WARNING": 18,
-      "DYNAMIC_BACKGROUND": 19
+      "DYNAMIC_BACKGROUND": 19,
+      "WEATHER_ICON": 20,
+      "UV": 21,
+      "TEXT_COLOR": 22,
+      "PRESSURE_SOURCE": 23
     }
   }
 }

@@ -17,6 +17,11 @@ A sleek, customizable weather watchface for Pebble Time 2. Get real-time weather
 - Automatic geolocation
 - Displays your current city
 
+**Personal Weather Station (optional)**
+- Use your own Weather Underground station instead of the forecast
+- Switches to it automatically when you are near it, and back when you are not
+- Falls back on its own if the station stops reporting
+
 **Fitness Tracking**
 - Real-time step count & distance
 - Enabled by default
@@ -124,17 +129,58 @@ Weather Icons by Erik Flowers — font licensed under SIL OFL 1.1.
 
 ## Known issues
 
-**Three message keys are missing from the manifest.** The C uses `WEATHER_ICON`
-(20), `UV` (21) and `TEXT_COLOR` (22), but `messageKeys` doesn't declare them, so
-`src/pkjs/app.js` falls back to hard-coded ids. It works, but declaring them is
-tidier. `DYNAMIC_BACKGROUND` (19) is declared and no longer used.
+`DYNAMIC_BACKGROUND` (19) is still declared in `messageKeys` but nothing uses
+it. It is left in place so an existing install's stored configuration is not
+disturbed.
 
 **Note on the UUID.** This is `26561edc-d219-46de-8be2-9833c511e9e2`. Version 1.0
 shipped as `7c6d5e4f-3a2b-1c0d-9e8f-7a6b5c4d3e2f`, so to a watch those are two
 different apps rather than an upgrade.
 
+## Using a personal weather station
+
+If you run a station that uploads to Weather Underground, the face can show your
+own readings instead of the forecast. Enter the station ID and a
+[free contributor API key](https://www.wunderground.com/member/api-keys) in the
+settings.
+
+It is an overlay, not a replacement. A weather station reports sensors only, so
+the condition text and the weather icon always come from Open-Meteo. What your
+station replaces, when it is used, is temperature, humidity, wind, rainfall,
+pressure and UV.
+
+Three rules decide whether the station is used, and all three fail safe back to
+Open-Meteo:
+
+- **Distance.** The station's coordinates come back with the observation, so the
+  face works out how far away you are and uses the station only within
+  `PWS_MAX_KM` (15km). Walk out of range and the forecast takes over; come home
+  and the station does. There is nothing to switch.
+- **Age.** An observation older than `PWS_MAX_AGE_MIN` (30 minutes) is ignored,
+  so a station that has gone offline is never presented as current.
+- **Agreement.** A drifting or failing barometer looks exactly like an
+  approaching storm. Open-Meteo is fetched every cycle anyway for the
+  conditions, which gives a second pressure reading for free. If the station's
+  three-hour trend disagrees with the model's by more than
+  `PWS_DISAGREE_TENTHS` (2.5 hPa), the station is distrusted for that cycle.
+
+Pressure history is kept separately per source and readings are never compared
+across sources. Many amateur stations report station pressure rather than
+mean-sea-level, so a station's absolute value can sit tens of hPa from the
+model's - differencing the two would manufacture a storm. Because the warning is
+trend-based, a constant offset is harmless as long as the series stay apart.
+
+Both series are recorded every cycle, so the station's history stays warm while
+you are away and a trend is ready the moment you are back in range.
+
+When the displayed pressure came from your station, the pressure row shows `PWS`
+where it would otherwise say `Rising`, `Falling` or `Steady`. The arrow already
+gives the direction, so the source is the more useful thing in that slot.
+
 ## Version history
 
+- **2.2.0** — optional Weather Underground personal weather station as a data
+  source, used automatically when you are near it.
 - **2.1.0** — widened the condition-icon font subset from seven glyphs to ten.
   Thunderstorm, night-clear and night-alt-cloudy previously rendered blank.
 - **2.0.0** — colour layout for the Pebble Time 2 (emery).

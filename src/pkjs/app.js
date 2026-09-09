@@ -15,11 +15,116 @@ var settings = {
   show_steps: true,
   step_unit: 'miles',
   storm_warning: false,
-  text_color: 'white'
+  text_color: 'white',
+  // Personal Weather Station (Weather Underground) - optional
+  pws_enabled: false,
+  pws_station_id: '',
+  pws_api_key: ''
 };
 
 // Store last weather data for immediate re-sending when units change
 var lastWeatherData = null;
+
+// --- Personal Weather Station tuning ---------------------------------------
+// Use the station's own readings only when we are actually near it. Beyond this
+// the station stops being representative and Open-Meteo is the better answer.
+var PWS_MAX_KM = 15;
+// A station that has stopped uploading must not be shown as current.
+var PWS_MAX_AGE_MIN = 30;
+// If the station's 3-hour trend disagrees with the model's by more than this
+// (in tenths of hPa), assume the sensor is drifting rather than the weather
+// turning, and fall back. A failing barometer looks exactly like a storm.
+var PWS_DISAGREE_TENTHS = 25;
+
+function haversineKm(lat1, lon1, lat2, lon2) {
+  var R = 6371;
+  var toRad = Math.PI / 180;
+  var dLat = (lat2 - lat1) * toRad;
+  var dLon = (lon2 - lon1) * toRad;
+  var a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+          Math.cos(lat1 * toRad) * Math.cos(lat2 * toRad) *
+          Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+// Pressure history is kept per source. Readings from a barometer and readings
+// from a model must never be differenced against each other - a fixed
+// calibration offset between them would read as a storm.
+function loadPressureHistory() {
+  var raw = localStorage.getItem('pressure_history_v2');
+  if (raw) {
+    try { return JSON.parse(raw); } catch (e) { /* fall through and rebuild */ }
+  }
+  // Migrate the old flat history - all of it was Open-Meteo.
+  var old = {};
+  try { old = JSON.parse(localStorage.getItem('pressure_history') || '{}'); } catch (e) { old = {}; }
+  var migrated = { om: {} };
+  for (var t in old) {
+    var entry = old[t];
+    migrated.om[t] = (typeof entry === 'object') ? entry : { p: entry };
+  }
+  return migrated;
+}
+
+function savePressureHistory(history) {
+  localStorage.setItem('pressure_history_v2', JSON.stringify(history));
+}
+
+// Record a reading against one source and return that source's 3-hour trend in
+// tenths of hPa, or undefined when there is no trustworthy comparison to make.
+// Pass lat/lon for a source that moves with the phone; pass null for a fixed
+// station, which by definition never travels between weather systems.
+function recordAndTrend(history, source, pressure, lat, lon) {
+  if (!history[source]) history[source] = {};
+  var series = history[source];
+  var now = Date.now();
+  var threeHoursAgo = now - (3 * 60 * 60 * 1000);
+  var isFirstReading = Object.keys(series).length === 0;
+
+  var oldestEntry = null;
+  var oldestTime = null;
+  for (var timeStr in series) {
+    var time = parseInt(timeStr);
+    if (time <= threeHoursAgo && (oldestTime === null || time > oldestTime)) {
+      oldestTime = time;
+      oldestEntry = series[timeStr];
+    }
+  }
+
+  var trendTenths;
+  if (oldestEntry !== null && !isFirstReading) {
+    var oldP = (typeof oldestEntry === 'object') ? oldestEntry.p : oldestEntry;
+    var oldLat = (oldestEntry && typeof oldestEntry.lat !== 'undefined') ? oldestEntry.lat : null;
+    var oldLon = (oldestEntry && typeof oldestEntry.lon !== 'undefined') ? oldestEntry.lon : null;
+
+    var hasMovedSignificantly = false;
+    if (oldLat !== null && oldLon !== null && typeof lat === 'number') {
+      if (Math.abs(lat - oldLat) > 0.2 || Math.abs(lon - oldLon) > 0.2) {
+        hasMovedSignificantly = true;
+      }
+    }
+
+    if (hasMovedSignificantly) {
+      console.log('[JS] ' + source + ': moved more than ~20km since the reference reading, skipping trend');
+    } else {
+      trendTenths = Math.round((pressure - oldP) * 10);
+      console.log('[JS] ' + source + ' 3hr trend: ' + (trendTenths / 10).toFixed(1) + ' hPa (' + oldP + ' -> ' + pressure + ')');
+    }
+  } else if (isFirstReading) {
+    console.log('[JS] ' + source + ': first reading, no trend yet');
+  }
+
+  var entry = { p: pressure };
+  if (typeof lat === 'number') { entry.lat = lat; entry.lon = lon; }
+  series[now] = entry;
+
+  var fourHoursAgo = now - (4 * 60 * 60 * 1000);
+  for (var ts in series) {
+    if (parseInt(ts) < fourHoursAgo) delete series[ts];
+  }
+
+  return trendTenths;
+}
 
 // Global function to resend weather data with current units
 function resendWeatherWithCurrentUnits() {
@@ -45,6 +150,7 @@ function resendWeatherWithCurrentUnits() {
   dict[6] = useData.location || 'Settings'; // LOCATION_KEY = 6 - use real location if available
   if (typeof useData.trendTenths !== 'undefined') dict[7] = Math.round(useData.trendTenths); // PRESSURE_TREND_KEY = 7
   if (typeof useData.uv !== 'undefined') dict[21] = Math.round(useData.uv); // UV_KEY = 21
+  dict[23] = useData.fromPws ? 1 : 0; // PRESSURE_SOURCE_KEY = 23 - keep the marker as it was
   dict[9] = settings.temperature_unit === 'fahrenheit' ? 'F' : 'C'; // TEMP_UNIT_KEY = 9
   dict[10] = settings.wind_unit === 'mph' ? 'mph' : 'kph'; // WIND_UNIT_KEY = 10
   dict[11] = settings.precipitation_unit === 'inches' ? 'in' : 'mm'; // PRECIP_UNIT_KEY = 11
@@ -68,6 +174,14 @@ function resendWeatherWithCurrentUnits() {
   );
 }
 
+// Settings are logged in several places; never log the API key itself.
+function settingsForLog() {
+  var copy = {};
+  for (var k in settings) { copy[k] = settings[k]; }
+  if (copy.pws_api_key) copy.pws_api_key = '(set)';
+  return JSON.stringify(copy);
+}
+
 // Load settings from localStorage
 function loadSettings() {
   var saved = localStorage.getItem('color_weather_settings');
@@ -84,7 +198,10 @@ function loadSettings() {
       if (savedSettings.step_unit) settings.step_unit = savedSettings.step_unit;
       if (typeof savedSettings.storm_warning !== 'undefined') settings.storm_warning = savedSettings.storm_warning;
       if (savedSettings.text_color) settings.text_color = savedSettings.text_color;
-      console.log('[JS] Loaded settings:', JSON.stringify(settings));
+      if (typeof savedSettings.pws_enabled !== 'undefined') settings.pws_enabled = savedSettings.pws_enabled;
+      if (typeof savedSettings.pws_station_id === 'string') settings.pws_station_id = savedSettings.pws_station_id;
+      if (typeof savedSettings.pws_api_key === 'string') settings.pws_api_key = savedSettings.pws_api_key;
+      console.log('[JS] Loaded settings: ' + settingsForLog());
     } catch (e) {
       console.log('[JS] Error loading settings, using defaults');
     }
@@ -94,7 +211,7 @@ function loadSettings() {
 // Save settings to localStorage
 function saveSettings() {
   localStorage.setItem('color_weather_settings', JSON.stringify(settings));
-  console.log('[JS] Saved settings:', JSON.stringify(settings));
+  console.log('[JS] Saved settings: ' + settingsForLog());
   
   // Immediately update display with new units when settings are saved
   console.log('[JS] Settings saved - immediately updating display with new units...');
@@ -176,9 +293,10 @@ Pebble.addEventListener('ready', function(e) {
   var STORM_WARNING_KEY = (MessageKeys && typeof MessageKeys.STORM_WARNING !== 'undefined') ? MessageKeys.STORM_WARNING : 18;
   var UV_KEY = (MessageKeys && typeof MessageKeys.UV !== 'undefined') ? MessageKeys.UV : 21;
   var TEXT_COLOR_KEY = (MessageKeys && typeof MessageKeys.TEXT_COLOR !== 'undefined') ? MessageKeys.TEXT_COLOR : 22;
+  var PRESSURE_SOURCE_KEY = (MessageKeys && typeof MessageKeys.PRESSURE_SOURCE !== 'undefined') ? MessageKeys.PRESSURE_SOURCE : 23;
 
   // --- 2. Weather Sending Helper ---
-  function sendWeatherToWatch(pressureValue, tempValue, condText, humidityValue, windValue, precipValue, pressureTrendStr, locationName, pressureTrendTenths, uvValue) {
+  function sendWeatherToWatch(pressureValue, tempValue, condText, humidityValue, windValue, precipValue, pressureTrendStr, locationName, pressureTrendTenths, uvValue, pressureFromPws) {
     console.log('[JS] sendWeatherToWatch called with args:', {p: pressureValue, t: tempValue, w: windValue, pr: precipValue, loc: locationName, trendTenths: pressureTrendTenths, uv: uvValue});
     
     // Store the raw data for re-sending when units change
@@ -193,7 +311,8 @@ Pebble.addEventListener('ready', function(e) {
       trend: pressureTrendStr,
       trendTenths: pressureTrendTenths,
       uv: uvValue,
-      location: locationName
+      location: locationName,
+      fromPws: pressureFromPws ? true : false
     };
     
     var dict = {};
@@ -247,7 +366,10 @@ Pebble.addEventListener('ready', function(e) {
     } else if (settings.text_color === 'black') {
       dict[TEXT_COLOR_KEY] = 0;
     }
-    
+
+    // Tell the watch whose barometer this is, so the pressure row can say so
+    dict[PRESSURE_SOURCE_KEY] = pressureFromPws ? 1 : 0;
+
     Pebble.sendAppMessage(dict,
       function() { console.log('[JS] Weather update sent'); },
       function(e) { console.log('[JS] Weather update failed'); }
@@ -256,7 +378,7 @@ Pebble.addEventListener('ready', function(e) {
 
   // --- 2.6 Test function to send sample data with current unit settings ---
   function sendTestDataWithCurrentUnits() {
-    console.log('[JS] Sending test data with current units: ' + JSON.stringify(settings));
+    console.log('[JS] Sending test data with current units: ' + settingsForLog());
     
     // Always start with base metric values and let the conversion functions handle it
     var baseTempC = 20; // 20C
@@ -424,7 +546,97 @@ Pebble.addEventListener('ready', function(e) {
   }
 
   // --- 4. Fetch Function (No Promises) ---
-  function fetchPressureFromOpenMeteo(lat, lon, locationName) {
+  // --- 4.5 Personal Weather Station (Weather Underground) ---
+  // A PWS reports sensors only - no condition text, no weather code - so this
+  // never replaces Open-Meteo, it only overlays the measured values on top.
+  function fetchPWSObservation(callback) {
+    if (!settings.pws_enabled || !settings.pws_station_id || !settings.pws_api_key) {
+      callback(null);
+      return;
+    }
+
+    var url = 'https://api.weather.com/v2/pws/observations/current' +
+              '?stationId=' + encodeURIComponent(settings.pws_station_id) +
+              '&format=json&units=m' +
+              '&apiKey=' + encodeURIComponent(settings.pws_api_key);
+
+    console.log('[JS] Fetching PWS observation for ' + settings.pws_station_id);
+
+    var xhr = new XMLHttpRequest();
+    xhr.timeout = 15000;
+
+    xhr.onreadystatechange = function() {
+      if (xhr.readyState !== 4) return;
+
+      if (xhr.status === 401 || xhr.status === 403) {
+        console.log('[JS] PWS rejected the API key (HTTP ' + xhr.status + ') - check it in settings');
+        callback(null);
+        return;
+      }
+      if (xhr.status === 204 || xhr.status === 404) {
+        console.log('[JS] PWS returned no data for station "' + settings.pws_station_id + '" - check the station ID');
+        callback(null);
+        return;
+      }
+      if (xhr.status < 200 || xhr.status >= 300) {
+        console.log('[JS] PWS fetch failed: HTTP ' + xhr.status + ' - falling back to Open-Meteo');
+        callback(null);
+        return;
+      }
+
+      try {
+        var data = JSON.parse(xhr.responseText);
+        var obs = (data.observations && data.observations.length > 0) ? data.observations[0] : null;
+        if (!obs) {
+          console.log('[JS] PWS response had no observations - falling back');
+          callback(null);
+          return;
+        }
+
+        var metric = obs.metric || {};
+
+        // A station that has stopped uploading must not be presented as current.
+        var obsMs = obs.epoch ? (obs.epoch * 1000) : Date.parse(obs.obsTimeUtc);
+        var ageMin = isFinite(obsMs) ? ((Date.now() - obsMs) / 60000) : 0;
+        if (ageMin > PWS_MAX_AGE_MIN) {
+          console.log('[JS] PWS reading is ' + Math.round(ageMin) + ' minutes old - ignoring it');
+          callback(null);
+          return;
+        }
+
+        callback({
+          stationId: obs.stationID,
+          lat: obs.lat,
+          lon: obs.lon,
+          ageMin: ageMin,
+          temp: metric.temp,             // degrees C
+          humidity: obs.humidity,        // percent
+          wind: metric.windSpeed,        // km/h, matching Open-Meteo
+          precip: metric.precipTotal,    // mm accumulated today
+          pressure: metric.pressure,     // hPa
+          uv: obs.uv,
+          solar: obs.solarRadiation
+        });
+      } catch (ex) {
+        console.log('[JS] Error parsing PWS response: ' + ex);
+        callback(null);
+      }
+    };
+
+    xhr.ontimeout = function() {
+      console.log('[JS] PWS request timed out - falling back to Open-Meteo');
+      callback(null);
+    };
+    xhr.onerror = function() {
+      console.log('[JS] PWS network error - falling back to Open-Meteo');
+      callback(null);
+    };
+
+    xhr.open('GET', url, true);
+    xhr.send();
+  }
+
+  function fetchPressureFromOpenMeteo(lat, lon, locationName, pwsData) {
     // Build API URL to get current data for temperature/pressure/wind, 15-minute forecast for conditions, daily for rainfall
     // We use pressure_msl (Mean Sea Level) instead of surface_pressure to avoid false storm warnings while traveling/changing altitude
     var url = 'https://api.open-meteo.com/v1/forecast?latitude=' + encodeURIComponent(lat) + '&longitude=' + encodeURIComponent(lon) + 
@@ -482,70 +694,7 @@ Pebble.addEventListener('ready', function(e) {
             }
             if (current.pressure_msl !== undefined) {
               pressure = current.pressure_msl;
-              console.log('[JS] Current pressure (MSL): ' + pressure + ' hPa');
-              
-              // Calculate pressure trend (3-hour change in tenths of hPa)
-              var pressureHistory = JSON.parse(localStorage.getItem('pressure_history') || '{}');
-              var now = Date.now();
-              var threeHoursAgo = now - (3 * 60 * 60 * 1000);
-              
-              // Check if this is the first reading (fresh install)
-              var isFirstReading = Object.keys(pressureHistory).length === 0;
-              
-              // Find the oldest reading from ~3 hours ago
-              var oldestEntry = null;
-              var oldestTime = null;
-              for (var timeStr in pressureHistory) {
-                var time = parseInt(timeStr);
-                if (time <= threeHoursAgo && (oldestTime === null || time > oldestTime)) {
-                  oldestTime = time;
-                  oldestEntry = pressureHistory[timeStr];
-                }
-              }
-              
-              if (oldestEntry !== null && !isFirstReading) {
-                // Support both old format (number) and new format (object)
-                var oldP = (typeof oldestEntry === 'object') ? oldestEntry.p : oldestEntry;
-                var oldLat = (typeof oldestEntry === 'object') ? oldestEntry.lat : null;
-                var oldLon = (typeof oldestEntry === 'object') ? oldestEntry.lon : null;
-
-                // Travel detection: If we've moved more than ~20km, don't show a trend
-                // This prevents false storm warnings from traveling between weather systems
-                var hasMovedSignificantly = false;
-                if (oldLat !== null && oldLon !== null) {
-                   var dLat = Math.abs(lat - oldLat);
-                   var dLon = Math.abs(lon - oldLon);
-                   if (dLat > 0.2 || dLon > 0.2) {
-                     hasMovedSignificantly = true;
-                     console.log('[JS] Significant movement detected (' + dLat.toFixed(2) + ',' + dLon.toFixed(2) + '). Skipping trend calculation.');
-                   }
-                }
-
-                if (!hasMovedSignificantly) {
-                  // Pressure trend: (current - 3hr ago) * 10 = tenths of hPa
-                  trendTenths = Math.round((pressure - oldP) * 10);
-                  trendStr = (trendTenths >= 0 ? '+' : '') + (trendTenths / 10).toFixed(1);
-                  console.log('[JS] Pressure trend (3hr): ' + trendStr + ' hPa (from ' + oldP + ' to ' + pressure + ') - raw tenths: ' + trendTenths);
-                } else {
-                  console.log('[JS] Skipping trend due to significant movement.');
-                }
-              } else if (isFirstReading) {
-                // Fresh install - don't send a trend to avoid false storm warnings
-                console.log('[JS] First pressure reading - not calculating trend to avoid false storm warning');
-              }
-              
-              // Store current pressure with timestamp and location
-              pressureHistory[now] = { p: pressure, lat: lat, lon: lon };
-              
-              // Clean up readings older than 4 hours
-              var fourHoursAgo = now - (4 * 60 * 60 * 1000);
-              for (var timeStr in pressureHistory) {
-                if (parseInt(timeStr) < fourHoursAgo) {
-                  delete pressureHistory[timeStr];
-                }
-              }
-              
-              localStorage.setItem('pressure_history', JSON.stringify(pressureHistory));
+              console.log('[JS] Open-Meteo pressure (MSL): ' + pressure + ' hPa');
             }
           }
           
@@ -561,9 +710,65 @@ Pebble.addEventListener('ready', function(e) {
               precipitation = data.daily.precipitation_sum[0];
               console.log('[JS] Daily accumulated rainfall: ' + precipitation + ' mm');
             }
-          
-          sendWeatherToWatch(pressure, currentTemp, currentCondition, humidity, windSpeed, precipitation, trendStr, locationName, trendTenths, uvIndex);
-          
+
+          // --- Choose a source and work out the pressure trend ---------------
+          // Both series are recorded every cycle, so the station's history stays
+          // warm while you are away and is ready the moment you come home.
+          var history = loadPressureHistory();
+          var omTrend, pwsTrend;
+          var usingPws = false;
+
+          if (typeof pressure === 'number') {
+            omTrend = recordAndTrend(history, 'om', pressure, lat, lon);
+          }
+
+          if (pwsData) {
+            if (typeof pwsData.pressure === 'number') {
+              // A fixed station never travels, so no lat/lon guard is needed.
+              pwsTrend = recordAndTrend(history, 'pws:' + (pwsData.stationId || 'station'), pwsData.pressure, null, null);
+            }
+
+            var distKm = (typeof pwsData.lat === 'number' && typeof pwsData.lon === 'number')
+              ? haversineKm(lat, lon, pwsData.lat, pwsData.lon) : null;
+
+            if (distKm === null) {
+              console.log('[JS] PWS gave no coordinates, cannot tell how far away it is - using Open-Meteo');
+            } else if (distKm > PWS_MAX_KM) {
+              console.log('[JS] ' + distKm.toFixed(1) + ' km from ' + pwsData.stationId + ' (limit ' + PWS_MAX_KM + ') - using Open-Meteo');
+            } else {
+              usingPws = true;
+              console.log('[JS] ' + distKm.toFixed(1) + ' km from ' + pwsData.stationId + ' - using station readings');
+            }
+
+            // Sanity-check the barometer against the model before trusting it.
+            if (usingPws && typeof pwsTrend === 'number' && typeof omTrend === 'number' &&
+                Math.abs(pwsTrend - omTrend) > PWS_DISAGREE_TENTHS) {
+              console.log('[JS] Station trend ' + (pwsTrend / 10).toFixed(1) + ' hPa disagrees with model ' +
+                          (omTrend / 10).toFixed(1) + ' hPa - distrusting the station and falling back');
+              usingPws = false;
+            }
+          }
+
+          savePressureHistory(history);
+
+          if (usingPws) {
+            if (typeof pwsData.temp === 'number') currentTemp = pwsData.temp;
+            if (typeof pwsData.humidity === 'number') humidity = pwsData.humidity;
+            if (typeof pwsData.wind === 'number') windSpeed = pwsData.wind;
+            if (typeof pwsData.precip === 'number') precipitation = pwsData.precip;
+            if (typeof pwsData.uv === 'number') uvIndex = pwsData.uv;
+            if (typeof pwsData.pressure === 'number') pressure = pwsData.pressure;
+            trendTenths = pwsTrend;
+          } else {
+            trendTenths = omTrend;
+          }
+
+          if (typeof trendTenths === 'number') {
+            trendStr = (trendTenths >= 0 ? '+' : '') + (trendTenths / 10).toFixed(1);
+          }
+
+          sendWeatherToWatch(pressure, currentTemp, currentCondition, humidity, windSpeed, precipitation, trendStr, locationName, trendTenths, uvIndex, usingPws);
+
         } catch (ex) {
           console.log('[JS] Error parsing Open-Meteo response: ' + ex);
           sendWeatherToWatch(1013, 20, 'Parse Error', undefined, undefined, undefined, undefined, locationName, undefined); // Send specific error
@@ -603,18 +808,20 @@ Pebble.addEventListener('ready', function(e) {
           
           // CORRECT: The weather fetch is now INSIDE the callback.
           reverseGeocode(lat, lon, function(locationName) {
-            fetchPressureFromOpenMeteo(lat, lon, locationName);
+            fetchPWSObservation(function(pwsData) {
+              fetchPressureFromOpenMeteo(lat, lon, locationName, pwsData);
+            });
           });
         },
         function(error) {
           console.log('[JS] Geolocation error: ' + error.message + ' -- using default coords');
-          fetchPressureFromOpenMeteo(DEFAULT_LAT, DEFAULT_LON, "London");
+          fetchPressureFromOpenMeteo(DEFAULT_LAT, DEFAULT_LON, "London", null);
         },
         { timeout: 10000, enableHighAccuracy: false }
       );
     } else {
       console.log('[JS] Geolocation not available -- using default coords');
-      fetchPressureFromOpenMeteo(DEFAULT_LAT, DEFAULT_LON, "London");
+      fetchPressureFromOpenMeteo(DEFAULT_LAT, DEFAULT_LON, "London", null);
     }
   }
 
@@ -629,7 +836,7 @@ Pebble.addEventListener('ready', function(e) {
 Pebble.addEventListener('showConfiguration', function() {
   // Load settings first to ensure current state is reflected
   loadSettings();
-  console.log('[JS] showConfiguration - Current settings: ' + JSON.stringify(settings));
+  console.log('[JS] showConfiguration - Current settings: ' + settingsForLog());
   
   var appVersion = '1.0.0';
   var watchPlatform = Pebble.getActiveWatchInfo() ? Pebble.getActiveWatchInfo().platform : 'unknown';
@@ -703,6 +910,14 @@ Pebble.addEventListener('showConfiguration', function() {
 '<input type="checkbox" id="storm_warning" name="storm_warning" ' + (settings.storm_warning ? 'checked' : '') + '>' +
 '<label for="storm_warning">Enable storm warnings</label></div>' +
 '<div class="description">Get vibration alerts and watch warnings when barometric pressure drops -3mb in 3 hours, indicating potential severe weather</div></div>' +
+'<div class="setting-group"><div class="setting-label">📡 Personal Weather Station (optional)</div><div class="radio-option">' +
+'<input type="checkbox" id="pws_enabled" name="pws_enabled" ' + (settings.pws_enabled ? 'checked' : '') + '>' +
+'<label for="pws_enabled">Use my Weather Underground station</label></div>' +
+'<div style="margin-top:12px"><label for="pws_station_id" style="display:block;margin-bottom:4px">Station ID</label>' +
+'<input type="text" id="pws_station_id" name="pws_station_id" value="' + (settings.pws_station_id || '').replace(/"/g, '&quot;') + '" placeholder="e.g. IcambRIDG42" autocapitalize="characters" autocorrect="off" spellcheck="false" style="width:100%;padding:10px;font-size:16px;border:1px solid #ccc;border-radius:6px;box-sizing:border-box"></div>' +
+'<div style="margin-top:12px"><label for="pws_api_key" style="display:block;margin-bottom:4px">API key</label>' +
+'<input type="text" id="pws_api_key" name="pws_api_key" value="' + (settings.pws_api_key || '').replace(/"/g, '&quot;') + '" placeholder="32-character key" autocorrect="off" spellcheck="false" style="width:100%;padding:10px;font-size:16px;border:1px solid #ccc;border-radius:6px;box-sizing:border-box"></div>' +
+'<div class="description">Station owners get a free key from wunderground.com/member/api-keys. Your station replaces the forecast values for temperature, humidity, wind, rainfall, pressure and UV &mdash; but only while you are within ' + PWS_MAX_KM + 'km of it. Further away, or if the station stops reporting, the face falls back to Open-Meteo on its own. Conditions and the weather icon always come from Open-Meteo, since a weather station has no way to report them.</div></div>' +
 appearanceGroup +
 '<div class="button-group"><button type="submit" class="save-btn">Save Settings</button>' +
 '<button type="button" class="cancel-btn" onclick="document.location=\'pebblejs://close#\'">Cancel</button></div>' +
@@ -719,8 +934,15 @@ appearanceGroup +
 '    show_steps: document.getElementById("show_steps").checked,' +
 '    step_unit: document.querySelector(\'input[name="step_unit"]:checked\').value,' +
 '    storm_warning: document.getElementById("storm_warning").checked,' +
+'    pws_enabled: document.getElementById("pws_enabled").checked,' +
+'    pws_station_id: document.getElementById("pws_station_id").value.trim(),' +
+'    pws_api_key: document.getElementById("pws_api_key").value.trim(),' +
 '    text_color: document.querySelector(\'input[name="text_color"]\') ? document.querySelector(\'input[name="text_color"]:checked\').value : "white"' +
 '  };' +
+'  if (settings.pws_enabled && (!settings.pws_station_id || !settings.pws_api_key)) {' +
+'    alert("Enter both a station ID and an API key, or untick the personal weather station option.");' +
+'    return;' +
+'  }' +
 '  document.location = "pebblejs://close#" + encodeURIComponent(JSON.stringify(settings));' +
 '});' +
 '</script></body></html>';
@@ -738,7 +960,7 @@ Pebble.addEventListener('webviewclosed', function(e) {
     try {
       var newSettings = JSON.parse(decodeURIComponent(e.response));
       console.log('[JS] Received new settings: ' + JSON.stringify(newSettings));
-      console.log('[JS] Old settings: ' + JSON.stringify(settings));
+      console.log('[JS] Old settings: ' + settingsForLog());
       
       // Update settings
       if (newSettings.temperature_unit) settings.temperature_unit = newSettings.temperature_unit;
@@ -780,7 +1002,17 @@ Pebble.addEventListener('webviewclosed', function(e) {
       } else {
         console.log('[JS] text_color not found in new settings');
       }
-      console.log('[JS] Updated settings: ' + JSON.stringify(settings));
+      if (typeof newSettings.pws_enabled !== 'undefined') {
+        settings.pws_enabled = newSettings.pws_enabled;
+      }
+      if (typeof newSettings.pws_station_id === 'string') {
+        settings.pws_station_id = newSettings.pws_station_id;
+      }
+      if (typeof newSettings.pws_api_key === 'string') {
+        settings.pws_api_key = newSettings.pws_api_key;
+      }
+      console.log('[JS] PWS: ' + (settings.pws_enabled ? ('enabled, station ' + settings.pws_station_id) : 'disabled'));
+      console.log('[JS] Updated settings: ' + settingsForLog());
       
       // Save settings
       saveSettings();
