@@ -1091,10 +1091,3 @@ console.log('[JS] src/pkjs/app.js loaded.');
 loadSettings();
 console.log('[JS] Settings loaded on startup, sending to watch...');
 resendWeatherWithCurrentUnits();
-
-
-//////////////////
-// WEBPACK FOOTER
-// ./src/pkjs/app.js
-// module id = 3
-// module chunks = 0
