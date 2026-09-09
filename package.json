@@ -1,7 +1,7 @@
 {
   "name": "color-weather",
   "author": "Digital Urban",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "keywords": [
     "pebble-app"
   ],
@@ -30,7 +30,7 @@
           "type": "font",
           "name": "WEATHER_FONT_36",
           "file": "fonts/weathericons-regular-webfont.ttf",
-          "characterRegex": "[\\uf00d\\uf002\\uf013\\uf019\\uf01b\\uf014\\uf07b]"
+          "characterRegex": "[\\uF002\\uF00D\\uF013\\uF014\\uF019\\uF01B\\uF01E\\uF02E\\uF07B\\uF081]"
         }
       ]
     },

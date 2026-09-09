@@ -36,7 +36,7 @@ A sleek, customizable weather watchface for Pebble Time 2. Get real-time weather
 
 ## Installation
 
-1. Download `Color Weather v2.0.0.pbw`
+1. Download `Color Weather v2.1.0.pbw`
 2. Open Pebble app on your phone
 3. Install the watchface
 4. Configure settings via the companion app
@@ -124,25 +124,17 @@ Weather Icons by Erik Flowers — font licensed under SIL OFL 1.1.
 
 ## Known issues
 
-Two things in this version that are worth a fix in the next build.
-
-**The condition-icon font subset is incomplete.** `characterRegex` in
-`package.json` includes seven glyphs, but `color_weather.c` uses ten. Missing:
-
-| Codepoint | Icon | Used for |
-|---|---|---|
-| `U+F01E` | wi-thunderstorm | icon code 7 |
-| `U+F02E` | wi-night-clear | icon code 8 |
-| `U+F081` | wi-night-alt-cloudy | icon code 9 |
-
-Those three conditions render blank on the watch. The fix is to widen the regex to
-`[\uF002\uF00D\uF013\uF014\uF019\uF01B\uF01E\uF02E\uF07B\uF081]`.
-
 **Three message keys are missing from the manifest.** The C uses `WEATHER_ICON`
 (20), `UV` (21) and `TEXT_COLOR` (22), but `messageKeys` doesn't declare them, so
 `src/pkjs/app.js` falls back to hard-coded ids. It works, but declaring them is
 tidier. `DYNAMIC_BACKGROUND` (19) is declared and no longer used.
 
 **Note on the UUID.** This is `26561edc-d219-46de-8be2-9833c511e9e2`. Version 1.0
-shipped as `7c6d5e4f-3a2b-1c0d-9e8f-7a6b5c4d3e2f`, so to a watch these are two
+shipped as `7c6d5e4f-3a2b-1c0d-9e8f-7a6b5c4d3e2f`, so to a watch those are two
 different apps rather than an upgrade.
+
+## Version history
+
+- **2.1.0** — widened the condition-icon font subset from seven glyphs to ten.
+  Thunderstorm, night-clear and night-alt-cloudy previously rendered blank.
+- **2.0.0** — colour layout for the Pebble Time 2 (emery).
