@@ -66,6 +66,25 @@ function loadPressureHistory() {
   return migrated;
 }
 
+// The settings page shows the result of the last station check, so a
+// misconfigured station explains itself instead of failing silently.
+function setPwsStatus(msg) {
+  try {
+    localStorage.setItem('pws_last_status', JSON.stringify({ t: Date.now(), msg: msg }));
+  } catch (e) { /* status is a convenience, never worth throwing over */ }
+}
+
+function getPwsStatus() {
+  try {
+    var raw = localStorage.getItem('pws_last_status');
+    if (!raw) return null;
+    var s = JSON.parse(raw);
+    var mins = Math.round((Date.now() - s.t) / 60000);
+    var when = mins < 1 ? 'just now' : (mins === 1 ? '1 minute ago' : mins + ' minutes ago');
+    return when + ' - ' + s.msg;
+  } catch (e) { return null; }
+}
+
 function savePressureHistory(history) {
   localStorage.setItem('pressure_history_v2', JSON.stringify(history));
 }
@@ -574,16 +593,19 @@ Pebble.addEventListener('ready', function(e) {
       if (xhr.readyState !== 4) return;
 
       if (xhr.status === 401 || xhr.status === 403) {
+        setPwsStatus('API key rejected (HTTP ' + xhr.status + ')');
         console.log('[JS] PWS rejected the API key (HTTP ' + xhr.status + ') - check it in settings');
         callback(null);
         return;
       }
       if (xhr.status === 204 || xhr.status === 404) {
+        setPwsStatus('No data for station "' + settings.pws_station_id + '" - check the ID');
         console.log('[JS] PWS returned no data for station "' + settings.pws_station_id + '" - check the station ID');
         callback(null);
         return;
       }
       if (xhr.status < 200 || xhr.status >= 300) {
+        setPwsStatus('Request failed (HTTP ' + xhr.status + ')');
         console.log('[JS] PWS fetch failed: HTTP ' + xhr.status + ' - falling back to Open-Meteo');
         callback(null);
         return;
@@ -593,6 +615,7 @@ Pebble.addEventListener('ready', function(e) {
         var data = JSON.parse(xhr.responseText);
         var obs = (data.observations && data.observations.length > 0) ? data.observations[0] : null;
         if (!obs) {
+          setPwsStatus('Station replied with no observations');
           console.log('[JS] PWS response had no observations - falling back');
           callback(null);
           return;
@@ -604,6 +627,7 @@ Pebble.addEventListener('ready', function(e) {
         var obsMs = obs.epoch ? (obs.epoch * 1000) : Date.parse(obs.obsTimeUtc);
         var ageMin = isFinite(obsMs) ? ((Date.now() - obsMs) / 60000) : 0;
         if (ageMin > PWS_MAX_AGE_MIN) {
+          setPwsStatus('Last reading was ' + Math.round(ageMin) + ' minutes old - station may be offline');
           console.log('[JS] PWS reading is ' + Math.round(ageMin) + ' minutes old - ignoring it');
           callback(null);
           return;
@@ -623,16 +647,19 @@ Pebble.addEventListener('ready', function(e) {
           solar: obs.solarRadiation
         });
       } catch (ex) {
+        setPwsStatus('Could not read the station response');
         console.log('[JS] Error parsing PWS response: ' + ex);
         callback(null);
       }
     };
 
     xhr.ontimeout = function() {
+      setPwsStatus('Request timed out');
       console.log('[JS] PWS request timed out - falling back to Open-Meteo');
       callback(null);
     };
     xhr.onerror = function() {
+      setPwsStatus('Network error reaching Weather Underground');
       console.log('[JS] PWS network error - falling back to Open-Meteo');
       callback(null);
     };
@@ -737,11 +764,14 @@ Pebble.addEventListener('ready', function(e) {
               ? haversineKm(lat, lon, pwsData.lat, pwsData.lon) : null;
 
             if (distKm === null) {
+              setPwsStatus('Station sent no location, so range cannot be checked - using the forecast');
               console.log('[JS] PWS gave no coordinates, cannot tell how far away it is - using Open-Meteo');
             } else if (distKm > PWS_MAX_KM) {
+              setPwsStatus(distKm.toFixed(1) + ' km away, beyond the ' + PWS_MAX_KM + ' km limit - using the forecast');
               console.log('[JS] ' + distKm.toFixed(1) + ' km from ' + pwsData.stationId + ' (limit ' + PWS_MAX_KM + ') - using Open-Meteo');
             } else {
               usingPws = true;
+              setPwsStatus('Using ' + pwsData.stationId + ', ' + distKm.toFixed(1) + ' km away');
               console.log('[JS] ' + distKm.toFixed(1) + ' km from ' + pwsData.stationId + ' - using station readings');
             }
 
@@ -750,6 +780,7 @@ Pebble.addEventListener('ready', function(e) {
                 Math.abs(pwsTrend - omTrend) > PWS_DISAGREE_TENTHS) {
               console.log('[JS] Station trend ' + (pwsTrend / 10).toFixed(1) + ' hPa disagrees with model ' +
                           (omTrend / 10).toFixed(1) + ' hPa - distrusting the station and falling back');
+              setPwsStatus('Station pressure disagrees with the forecast - using the forecast');
               usingPws = false;
             }
           }
@@ -922,6 +953,7 @@ Pebble.addEventListener('showConfiguration', function() {
 '<input type="text" id="pws_station_id" name="pws_station_id" value="' + (settings.pws_station_id || '').replace(/"/g, '&quot;') + '" placeholder="e.g. IcambRIDG42" autocapitalize="characters" autocorrect="off" spellcheck="false" style="width:100%;padding:10px;font-size:16px;border:1px solid #ccc;border-radius:6px;box-sizing:border-box"></div>' +
 '<div style="margin-top:12px"><label for="pws_api_key" style="display:block;margin-bottom:4px">API key</label>' +
 '<input type="text" id="pws_api_key" name="pws_api_key" value="' + (settings.pws_api_key || '').replace(/"/g, '&quot;') + '" placeholder="32-character key" autocorrect="off" spellcheck="false" style="width:100%;padding:10px;font-size:16px;border:1px solid #ccc;border-radius:6px;box-sizing:border-box"></div>' +
+(getPwsStatus() ? ('<div style="margin-top:12px;padding:10px;border-radius:6px;background:#eef4ff;border:1px solid #cddcff;font-size:14px"><strong>Last check:</strong> ' + getPwsStatus().replace(/</g, '&lt;') + '</div>') : '<div style="margin-top:12px;padding:10px;border-radius:6px;background:#f0f0f0;border:1px solid #ddd;font-size:14px">No station check has run yet. Save your settings and reopen this page in a few seconds.</div>') +
 '<div class="description">Station owners get a free key from wunderground.com/member/api-keys. Your station replaces the forecast values for temperature, humidity, wind, rainfall, pressure and UV &mdash; but only while you are within ' + PWS_MAX_KM + 'km of it. Further away, or if the station stops reporting, the face falls back to Open-Meteo on its own. Conditions and the weather icon always come from Open-Meteo, since a weather station has no way to report them.</div></div>' +
 appearanceGroup +
 '<div class="button-group"><button type="submit" class="save-btn">Save Settings</button>' +

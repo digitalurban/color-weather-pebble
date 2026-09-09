@@ -173,6 +173,10 @@ trend-based, a constant offset is harmless as long as the series stay apart.
 Both series are recorded every cycle, so the station's history stays warm while
 you are away and a trend is ready the moment you are back in range.
 
+The settings page shows the result of the last station check - which station is
+in use and how far away it is, or why it was not used. Save your settings, wait
+a few seconds for the refresh, then reopen the page to see it.
+
 When the displayed pressure came from your station, the pressure row shows `PWS`
 where it would otherwise say `Rising`, `Falling` or `Steady` - the arrow already
 gives the direction, so the source is the more useful thing in that slot. Before
@@ -182,6 +186,9 @@ while the station is in use.
 
 ## Version history
 
+- **2.3.1** — the settings page now reports the result of the last station
+  check, so a misconfigured station explains itself instead of failing
+  silently.
 - **2.3.0** — temperature and pressure now show one decimal place (18.1C,
   1015.8mb). The pressure row no longer repeats the trend as a word, since the
   arrow already gives the direction and the width pays for the decimal.
