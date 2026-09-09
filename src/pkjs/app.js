@@ -593,7 +593,10 @@ Pebble.addEventListener('ready', function(e) {
       if (xhr.readyState !== 4) return;
 
       if (xhr.status === 401 || xhr.status === 403) {
-        setPwsStatus('API key rejected (HTTP ' + xhr.status + ')');
+        var keyLen = (settings.pws_api_key || '').length;
+        setPwsStatus('API key rejected (HTTP ' + xhr.status + '). The key held is ' +
+                     keyLen + ' characters' + (keyLen === 32 ? '' : ', but should be 32') +
+                     '. Station ID held: "' + settings.pws_station_id + '"');
         console.log('[JS] PWS rejected the API key (HTTP ' + xhr.status + ') - check it in settings');
         callback(null);
         return;
@@ -972,8 +975,8 @@ appearanceGroup +
 '    step_unit: document.querySelector(\'input[name="step_unit"]:checked\').value,' +
 '    storm_warning: document.getElementById("storm_warning").checked,' +
 '    pws_enabled: document.getElementById("pws_enabled").checked,' +
-'    pws_station_id: document.getElementById("pws_station_id").value.trim(),' +
-'    pws_api_key: document.getElementById("pws_api_key").value.trim(),' +
+'    pws_station_id: document.getElementById("pws_station_id").value.replace(/\\s+/g, ""),' +
+'    pws_api_key: document.getElementById("pws_api_key").value.replace(/\\s+/g, ""),' +
 '    text_color: document.querySelector(\'input[name="text_color"]\') ? document.querySelector(\'input[name="text_color"]:checked\').value : "white"' +
 '  };' +
 '  if (settings.pws_enabled && (!settings.pws_station_id || !settings.pws_api_key)) {' +
