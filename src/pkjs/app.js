@@ -22,6 +22,10 @@ var settings = {
   pws_api_key: ''
 };
 
+// Shown in the settings page and logged on startup, so which build is actually
+// running is answerable without attaching a phone to the log console.
+var APP_VERSION = '2.3.4';
+
 // Store last weather data for immediate re-sending when units change
 var lastWeatherData = null;
 
@@ -287,7 +291,7 @@ function getPrecipitationLabel() {
 
 
 Pebble.addEventListener('ready', function(e) {
-  console.log('[JS] src/pkjs/app.js is ready.');
+  console.log('[JS] Color Weather ' + APP_VERSION + ' - src/pkjs/app.js is ready.');
   
   // Load settings on startup
   loadSettings();
@@ -880,7 +884,6 @@ Pebble.addEventListener('showConfiguration', function() {
   loadSettings();
   console.log('[JS] showConfiguration - Current settings: ' + settingsForLog());
   
-  var appVersion = '1.0.0';
   var watchPlatform = Pebble.getActiveWatchInfo() ? Pebble.getActiveWatchInfo().platform : 'unknown';
   var isEmery = (watchPlatform === 'emery');
 
@@ -913,6 +916,7 @@ Pebble.addEventListener('showConfiguration', function() {
 '</style></head><body>' +
 '<div class="container">' +
 '<h1>⛅ Color Weather Settings</h1>' +
+'<div style="text-align:center;margin-top:-20px;margin-bottom:25px;color:#888;font-size:13px">Version ' + APP_VERSION + '</div>' +
 '<form id="settingsForm">' +
 '<div class="setting-group">' +
 '<div class="setting-label">Temperature Units</div>' +
