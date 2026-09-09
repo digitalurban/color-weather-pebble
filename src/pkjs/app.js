@@ -140,8 +140,8 @@ function resendWeatherWithCurrentUnits() {
   
   // Simple inline message construction and sending with unit conversions
   var dict = {};
-  dict[0] = Math.round(useData.pressure); // PRESSURE_KEY = 0
-  dict[1] = Math.round(settings.temperature_unit === 'fahrenheit' ? (useData.temperature * 9/5) + 32 : useData.temperature); // TEMPERATURE_KEY = 1
+  dict[0] = Math.round(useData.pressure * 10); // PRESSURE_KEY = 0, tenths of hPa
+  dict[1] = Math.round((settings.temperature_unit === 'fahrenheit' ? (useData.temperature * 9/5) + 32 : useData.temperature) * 10); // TEMPERATURE_KEY = 1, tenths
   dict[2] = useData.conditions || 'Settings Update'; // CONDITIONS_KEY = 2 - use real conditions if available
   dict[20] = (typeof useData.iconCode !== 'undefined') ? useData.iconCode : 6; // ICON_KEY = 20
   if (typeof useData.humidity !== 'undefined') dict[3] = Math.round(useData.humidity); // HUMIDITY_KEY = 3
@@ -316,13 +316,14 @@ Pebble.addEventListener('ready', function(e) {
     };
     
     var dict = {};
-    if (typeof pressureValue !== 'undefined') dict[PRESSURE_KEY] = Math.round(pressureValue);
+    // Sent as tenths so the watch can show one decimal place without floats.
+    if (typeof pressureValue !== 'undefined') dict[PRESSURE_KEY] = Math.round(pressureValue * 10);
     if (typeof pressureTrendTenths !== 'undefined') dict[PRESSURE_TREND_KEY] = Math.round(pressureTrendTenths);
     
     // Apply unit conversions with debug logging
     if (typeof tempValue !== 'undefined') {
       var convertedTemp = convertTemperature(tempValue, settings.temperature_unit);
-      dict[TEMPERATURE_KEY] = Math.round(convertedTemp);
+      dict[TEMPERATURE_KEY] = Math.round(convertedTemp * 10); // tenths of a degree
     }
     
     if (typeof condText !== 'undefined') dict[CONDITIONS_KEY] = condText.toString();

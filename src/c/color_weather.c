@@ -40,7 +40,7 @@ static TextLayer *s_steps_layer = NULL;
 
 static GColor s_text_color;
 static GColor s_bg_color;
-static int s_current_temp = 999;
+static int s_current_temp = 9999; // tenths of a degree; 9999 = no reading yet
 static bool s_temp_is_fahrenheit = false;
 static int s_user_text_color_preference = 1; // 0=Black, 1=White (Default)
 
@@ -121,20 +121,21 @@ static int s_current_step_distance = 0;
 static void update_colors() {
 #if defined(PBL_COLOR)
   // Determine background color based on temperature (Celsius) - for all color platforms
+  // Everything here is in tenths of a degree Celsius.
   int temp_c = s_current_temp;
-  if (s_temp_is_fahrenheit && s_current_temp != 999) {
-    temp_c = (s_current_temp - 32) * 5 / 9;
+  if (s_temp_is_fahrenheit && s_current_temp != 9999) {
+    temp_c = (s_current_temp - 320) * 5 / 9;
   }
 
-  if (s_current_temp == 999) {
+  if (s_current_temp == 9999) {
     s_bg_color = GColorBlack;
-  } else if (temp_c >= 25) {
+  } else if (temp_c >= 250) {
     s_bg_color = GColorDarkCandyAppleRed;
-  } else if (temp_c >= 20) {
+  } else if (temp_c >= 200) {
     s_bg_color = GColorWindsorTan;
-  } else if (temp_c >= 15) {
+  } else if (temp_c >= 150) {
     s_bg_color = GColorMidnightGreen;
-  } else if (temp_c >= 10) {
+  } else if (temp_c >= 100) {
     s_bg_color = GColorTiffanyBlue;
   } else if (temp_c >= 0) {
     s_bg_color = GColorCobaltBlue;
@@ -346,9 +347,17 @@ static void inbox_received_callback(DictionaryIterator *iterator, void *context)
       snprintf(temp_unit, sizeof(temp_unit), "%s", temp_unit_tuple->value->cstring);
       s_temp_is_fahrenheit = (strcmp(temp_unit, "F") == 0);
     } else {
-      s_temp_is_fahrenheit = (temp_val > 40); // Simple heuristic if unit is missing
+      s_temp_is_fahrenheit = (temp_val > 400); // Simple heuristic if unit is missing
     }
-    snprintf(temp_display, sizeof(temp_display), "%d%s", temp_val, temp_unit);
+    // temp_val is tenths. Integer division truncates towards zero, so -5 tenths
+    // would print as "0.5" rather than "-0.5" - carry the sign separately.
+    {
+      int t_whole = temp_val / 10;
+      int t_frac = temp_val % 10;
+      if (t_frac < 0) t_frac = -t_frac;
+      const char *t_sign = (temp_val < 0 && t_whole == 0) ? "-" : "";
+      snprintf(temp_display, sizeof(temp_display), "%s%d.%d%s", t_sign, t_whole, t_frac, temp_unit);
+    }
   } else {
     temp_display[0] = '\0';
   }
@@ -409,14 +418,16 @@ static void inbox_received_callback(DictionaryIterator *iterator, void *context)
         // When the reading is from the user's own station, that is worth more
         // than the word: the arrow already says which way the pressure is
         // going, so the same slot carries the source instead. Costs no width.
-        if (s_pressure_from_pws) {
-          trend_text = "PWS";
-        }
+        // The arrow already gives the direction, so on the wide Emery row the
+        // word is redundant - the slot is better spent on the source, and the
+        // width it frees pays for the decimal place on the pressure value.
+        trend_text = s_pressure_from_pws ? "PWS" : "";
 
         (void)trend_text; // Prevent "unused variable" error on non-Emery platforms
 
 #if defined(PBL_PLATFORM_EMERY)
-        snprintf(trend_suffix, sizeof(trend_suffix), " %s %c%d.%d %s", trend_arrow, sign, a / 10, a % 10, trend_text);
+        snprintf(trend_suffix, sizeof(trend_suffix), " %s %c%d.%d%s%s", trend_arrow, sign, a / 10, a % 10,
+                 (trend_text[0] != '\0') ? " " : "", trend_text);
 #else
         snprintf(trend_suffix, sizeof(trend_suffix), " %s %c%d.%d", trend_arrow, sign, a / 10, a % 10);
 #endif
@@ -431,7 +442,7 @@ static void inbox_received_callback(DictionaryIterator *iterator, void *context)
       snprintf(trend_suffix, sizeof(trend_suffix), " PWS");
     }
 
-    snprintf(s_pressure_buffer, sizeof(s_pressure_buffer), "%d mb%s", pressure_val, trend_suffix);
+    snprintf(s_pressure_buffer, sizeof(s_pressure_buffer), "%d.%d mb%s", pressure_val / 10, pressure_val % 10, trend_suffix);
     // Set the text on our Pressure TextLayer
     text_layer_set_text(s_pressure_layer, s_pressure_buffer);
   } else {
@@ -609,7 +620,7 @@ static void inbox_received_callback(DictionaryIterator *iterator, void *context)
 #if defined(PBL_PLATFORM_EMERY)
   // Row 1: Pressure (with Trend)
   if (pressure_val > 0) {
-    snprintf(s_pressure_buffer, sizeof(s_pressure_buffer), "%dmb%s", pressure_val, trend_suffix);
+    snprintf(s_pressure_buffer, sizeof(s_pressure_buffer), "%d.%dmb%s", pressure_val / 10, pressure_val % 10, trend_suffix);
   } else {
     s_pressure_buffer[0] = '\0';
   }

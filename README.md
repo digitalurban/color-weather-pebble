@@ -182,6 +182,9 @@ while the station is in use.
 
 ## Version history
 
+- **2.3.0** — temperature and pressure now show one decimal place (18.1C,
+  1015.8mb). The pressure row no longer repeats the trend as a word, since the
+  arrow already gives the direction and the width pays for the decimal.
 - **2.2.0** — optional Weather Underground personal weather station as a data
   source, used automatically when you are near it.
 - **2.1.0** — widened the condition-icon font subset from seven glyphs to ten.
