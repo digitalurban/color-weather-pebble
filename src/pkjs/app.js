@@ -24,7 +24,7 @@ var settings = {
 
 // Shown in the settings page and logged on startup, so which build is actually
 // running is answerable without attaching a phone to the log console.
-var APP_VERSION = '2.3.4';
+var APP_VERSION = '2.3.5';
 
 // Store last weather data for immediate re-sending when units change
 var lastWeatherData = null;
@@ -759,6 +759,7 @@ Pebble.addEventListener('ready', function(e) {
           var history = loadPressureHistory();
           var omTrend, pwsTrend;
           var usingPws = false;
+          var distKm = null;
 
           if (typeof pressure === 'number') {
             omTrend = recordAndTrend(history, 'om', pressure, lat, lon);
@@ -770,7 +771,7 @@ Pebble.addEventListener('ready', function(e) {
               pwsTrend = recordAndTrend(history, 'pws:' + (pwsData.stationId || 'station'), pwsData.pressure, null, null);
             }
 
-            var distKm = (typeof pwsData.lat === 'number' && typeof pwsData.lon === 'number')
+            distKm = (typeof pwsData.lat === 'number' && typeof pwsData.lon === 'number')
               ? haversineKm(lat, lon, pwsData.lat, pwsData.lon) : null;
 
             if (distKm === null) {
@@ -805,6 +806,11 @@ Pebble.addEventListener('ready', function(e) {
             if (typeof pwsData.uv === 'number') uvIndex = pwsData.uv;
             if (typeof pwsData.pressure === 'number') pressure = pwsData.pressure;
             trendTenths = pwsTrend;
+            setPwsStatus('Using ' + pwsData.stationId + ', ' +
+                         (distKm === null ? '?' : distKm.toFixed(1)) + ' km away. Sent ' +
+                         currentTemp + 'C, ' + pressure + 'mb' +
+                         ' (station reported ' + pwsData.temp + 'C, ' + pwsData.pressure + 'mb)');
+            console.log('[JS] PWS values applied: temp=' + currentTemp + ' pressure=' + pressure);
           } else {
             trendTenths = omTrend;
           }

@@ -209,6 +209,8 @@ different apps rather than an upgrade.
 
 ## Version history
 
+- **2.3.5** — the station status line now reports the values actually applied,
+  not just which source won.
 - **2.3.4** — show the running version at the top of the settings page, so
   which build is actually installed is answerable in three seconds.
 - **2.3.3** — ask Weather Underground for decimal precision; without it station
