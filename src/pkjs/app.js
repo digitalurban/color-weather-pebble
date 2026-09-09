@@ -293,7 +293,11 @@ Pebble.addEventListener('ready', function(e) {
   var STORM_WARNING_KEY = (MessageKeys && typeof MessageKeys.STORM_WARNING !== 'undefined') ? MessageKeys.STORM_WARNING : 18;
   var UV_KEY = (MessageKeys && typeof MessageKeys.UV !== 'undefined') ? MessageKeys.UV : 21;
   var TEXT_COLOR_KEY = (MessageKeys && typeof MessageKeys.TEXT_COLOR !== 'undefined') ? MessageKeys.TEXT_COLOR : 22;
-  var PRESSURE_SOURCE_KEY = (MessageKeys && typeof MessageKeys.PRESSURE_SOURCE !== 'undefined') ? MessageKeys.PRESSURE_SOURCE : 23;
+  // color_weather.c hardcodes 23 in its #define, so pin the same number here.
+  // If the build system assigns its own index for this name, MessageKeys would
+  // resolve to that instead and the C would look for a key that never arrives -
+  // the marker would silently never appear while everything else worked.
+  var PRESSURE_SOURCE_KEY = 23;
 
   // --- 2. Weather Sending Helper ---
   function sendWeatherToWatch(pressureValue, tempValue, condText, humidityValue, windValue, precipValue, pressureTrendStr, locationName, pressureTrendTenths, uvValue, pressureFromPws) {
