@@ -582,6 +582,9 @@ Pebble.addEventListener('ready', function(e) {
     var url = 'https://api.weather.com/v2/pws/observations/current' +
               '?stationId=' + encodeURIComponent(settings.pws_station_id) +
               '&format=json&units=m' +
+              // Without this WU rounds the metric conversion to whole degrees,
+              // so a real sensor would read less precisely than the forecast.
+              '&numericPrecision=decimal' +
               '&apiKey=' + encodeURIComponent(settings.pws_api_key);
 
     console.log('[JS] Fetching PWS observation for ' + settings.pws_station_id);

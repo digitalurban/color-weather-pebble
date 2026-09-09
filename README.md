@@ -144,6 +144,11 @@ own readings instead of the forecast. Enter the station ID and a
 [free contributor API key](https://www.wunderground.com/member/api-keys) in the
 settings.
 
+The request asks for `numericPrecision=decimal`. Without it Weather Underground
+rounds the metric conversion to whole degrees, so a station uploading in
+Fahrenheit would report `18` where the forecast reports `18.3` - the real sensor
+would read less precisely than the model it is meant to improve on.
+
 It is an overlay, not a replacement. A weather station reports sensors only, so
 the condition text and the weather icon always come from Open-Meteo. What your
 station replaces, when it is used, is temperature, humidity, wind, rainfall,
@@ -186,6 +191,8 @@ while the station is in use.
 
 ## Version history
 
+- **2.3.3** — ask Weather Underground for decimal precision; without it station
+  temperatures arrive rounded to whole degrees.
 - **2.3.1** — the settings page now reports the result of the last station
   check, so a misconfigured station explains itself instead of failing
   silently.
