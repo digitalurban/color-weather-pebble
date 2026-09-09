@@ -36,7 +36,7 @@ A sleek, customizable weather watchface for Pebble Time 2. Get real-time weather
 
 ## Installation
 
-1. Download `Color Weather v1.0.0.pbw`
+1. Download `Color Weather v2.0.0.pbw`
 2. Open Pebble app on your phone
 3. Install the watchface
 4. Configure settings via the companion app
@@ -72,3 +72,77 @@ Access settings through your Pebble companion app:
 
 **Version:** 1.0.0
 **Platform:** Pebble Time 2 (Emery)
+
+## Building
+
+Built with the Pebble SDK (`sdkVersion` 3), targeting **emery** (Pebble Time 2).
+
+```
+pebble build
+pebble install --phone <ip>
+```
+
+Project layout:
+
+```
+package.json                                   app config, UUID, message keys, resources
+src/c/color_weather.c                          the watchface itself
+src/pkjs/app.js                                companion app - weather fetching and settings
+src/pkjs/index.js                              PebbleKit JS entry point
+resources/images/shoe_icon.png                 step icon
+resources/fonts/weathericons-regular-webfont.ttf  condition icons (subset at build time)
+```
+
+The C also carries layout branches for `basalt` and `diorite`, but only `emery`
+is in `targetPlatforms` — add the others there to build for them.
+
+## Weather data
+
+[Open-Meteo](https://open-meteo.com/en/docs) for current conditions, the
+15-minute forecast block and daily rainfall. No API key required. City names
+come from Nominatim reverse geocoding. The face refreshes every 15 minutes.
+
+## Background colours
+
+The background is set from the temperature, converted to Celsius first so the
+bands land at the same real-world temperatures whichever unit is displayed:
+
+| Temperature | Colour | Hex |
+|---|---|---|
+| Below 0°C | `GColorOxfordBlue` | `#000055` |
+| 0 to 9°C | `GColorCobaltBlue` | `#0055AA` |
+| 10 to 14°C | `GColorTiffanyBlue` | `#00AAAA` |
+| 15 to 19°C | `GColorMidnightGreen` | `#005555` |
+| 20 to 24°C | `GColorWindsorTan` | `#AA5500` |
+| 25°C and above | `GColorDarkCandyAppleRed` | `#AA0000` |
+
+Before weather data arrives the background stays black.
+
+## Licence
+
+Weather Icons by Erik Flowers — font licensed under SIL OFL 1.1.
+
+## Known issues
+
+Two things in this version that are worth a fix in the next build.
+
+**The condition-icon font subset is incomplete.** `characterRegex` in
+`package.json` includes seven glyphs, but `color_weather.c` uses ten. Missing:
+
+| Codepoint | Icon | Used for |
+|---|---|---|
+| `U+F01E` | wi-thunderstorm | icon code 7 |
+| `U+F02E` | wi-night-clear | icon code 8 |
+| `U+F081` | wi-night-alt-cloudy | icon code 9 |
+
+Those three conditions render blank on the watch. The fix is to widen the regex to
+`[\uF002\uF00D\uF013\uF014\uF019\uF01B\uF01E\uF02E\uF07B\uF081]`.
+
+**Three message keys are missing from the manifest.** The C uses `WEATHER_ICON`
+(20), `UV` (21) and `TEXT_COLOR` (22), but `messageKeys` doesn't declare them, so
+`src/pkjs/app.js` falls back to hard-coded ids. It works, but declaring them is
+tidier. `DYNAMIC_BACKGROUND` (19) is declared and no longer used.
+
+**Note on the UUID.** This is `26561edc-d219-46de-8be2-9833c511e9e2`. Version 1.0
+shipped as `7c6d5e4f-3a2b-1c0d-9e8f-7a6b5c4d3e2f`, so to a watch these are two
+different apps rather than an upgrade.

@@ -1,0 +1,6 @@
+build/
+.lock-waf*
+*.pbw
+!Color Weather v*.pbw
+node_modules/
+.DS_Store
