@@ -174,8 +174,11 @@ Both series are recorded every cycle, so the station's history stays warm while
 you are away and a trend is ready the moment you are back in range.
 
 When the displayed pressure came from your station, the pressure row shows `PWS`
-where it would otherwise say `Rising`, `Falling` or `Steady`. The arrow already
-gives the direction, so the source is the more useful thing in that slot.
+where it would otherwise say `Rising`, `Falling` or `Steady` - the arrow already
+gives the direction, so the source is the more useful thing in that slot. Before
+there is any trend to show, which is the case for the first three hours after
+you enable it, the row simply reads `1013mb PWS`. The marker is never absent
+while the station is in use.
 
 ## Version history
 

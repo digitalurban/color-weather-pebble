@@ -423,6 +423,14 @@ static void inbox_received_callback(DictionaryIterator *iterator, void *context)
       }
     }
 
+    // Say where the reading came from even when there is no trend yet. A fresh
+    // install has no three-hour history to compare against, and without this
+    // the source would stay invisible for the first three hours - long enough
+    // for someone to conclude their station is not being used at all.
+    if (s_pressure_from_pws && trend_suffix[0] == '\0') {
+      snprintf(trend_suffix, sizeof(trend_suffix), " PWS");
+    }
+
     snprintf(s_pressure_buffer, sizeof(s_pressure_buffer), "%d mb%s", pressure_val, trend_suffix);
     // Set the text on our Pressure TextLayer
     text_layer_set_text(s_pressure_layer, s_pressure_buffer);
