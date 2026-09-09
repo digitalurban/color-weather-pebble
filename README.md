@@ -2,12 +2,14 @@
 
 # Color Weather - Pebble Time 2
 
-A sleek, customizable weather watchface for Pebble Time 2. Get real-time weather data, track your steps, and stay prepared with smart storm alerts.
+A weather watchface for the Pebble Time 2 where the background is the
+temperature. Barometric pressure with a three-hour trend, storm warnings, step
+tracking, and an optional feed from your own weather station.
 
 ## Features
 
 **Complete Weather Data**
-- Current temperature & conditions
+- Current temperature & conditions, to one decimal place
 - Barometric pressure with trend
 - Humidity, wind speed & precipitation
 - UV index
@@ -41,10 +43,16 @@ A sleek, customizable weather watchface for Pebble Time 2. Get real-time weather
 
 ## Installation
 
-1. Download `Color Weather v2.1.0.pbw`
-2. Open Pebble app on your phone
+1. Download the newest `.pbw` in this repository
+2. Open the Pebble app on your phone
 3. Install the watchface
 4. Configure settings via the companion app
+
+Or install from the
+[Pebble Appstore](https://apps.repebble.com/color-weather_9c6ae3e3f93845168d890af1).
+
+The `.pbw` files here track published releases. The source can be ahead of them
+between releases - see the version history at the bottom for what is in which.
 
 ## Requirements
 
@@ -55,57 +63,24 @@ A sleek, customizable weather watchface for Pebble Time 2. Get real-time weather
 ## Settings
 
 Access settings through your Pebble companion app:
+
 - **Temperature Units:** Celsius or Fahrenheit
 - **Wind Speed:** mph or km/h
 - **Precipitation:** mm or inches
 - **Text Color:** White (default) or Black
-- **Step Tracking:** Toggle on/off
+- **Step Tracking:** Toggle on/off, miles or kilometers
 - **Storm Warnings:** Enable/disable
 - **Hourly Vibration:** Optional alerts
-
-## Technical
-
-- Built with Pebble SDK v3
-- Uses Open-Meteo weather API
-- Real-time Health API integration for step tracking
-
-## License
-
-© Digital Urban - All rights reserved
-
----
-
-**Version:** 1.0.0
-**Platform:** Pebble Time 2 (Emery)
-
-## Building
-
-Built with the Pebble SDK (`sdkVersion` 3), targeting **emery** (Pebble Time 2).
-
-```
-pebble build
-pebble install --phone <ip>
-```
-
-Project layout:
-
-```
-package.json                                   app config, UUID, message keys, resources
-src/c/color_weather.c                          the watchface itself
-src/pkjs/app.js                                companion app - weather fetching and settings
-src/pkjs/index.js                              PebbleKit JS entry point
-resources/images/shoe_icon.png                 step icon
-resources/fonts/weathericons-regular-webfont.ttf  condition icons (subset at build time)
-```
-
-The C also carries layout branches for `basalt` and `diorite`, but only `emery`
-is in `targetPlatforms` — add the others there to build for them.
+- **Update Countdown:** Show the progress line
+- **Personal Weather Station:** Station ID and API key, optional
 
 ## Weather data
 
 [Open-Meteo](https://open-meteo.com/en/docs) for current conditions, the
-15-minute forecast block and daily rainfall. No API key required. City names
-come from Nominatim reverse geocoding. The face refreshes every 15 minutes.
+15-minute forecast block and daily rainfall. No API key required. City names come
+from Nominatim reverse geocoding. The face refreshes every 15 minutes.
+
+Optionally, a Weather Underground personal weather station on top - see below.
 
 ## Background colours
 
@@ -123,19 +98,8 @@ bands land at the same real-world temperatures whichever unit is displayed:
 
 Before weather data arrives the background stays black.
 
-## Licence
-
-Weather Icons by Erik Flowers — font licensed under SIL OFL 1.1.
-
-## Known issues
-
-`DYNAMIC_BACKGROUND` (19) is still declared in `messageKeys` but nothing uses
-it. It is left in place so an existing install's stored configuration is not
-disturbed.
-
-**Note on the UUID.** This is `26561edc-d219-46de-8be2-9833c511e9e2`. Version 1.0
-shipped as `7c6d5e4f-3a2b-1c0d-9e8f-7a6b5c4d3e2f`, so to a watch those are two
-different apps rather than an upgrade.
+Text colour is white or black by choice, or set to auto, which picks whichever
+stays legible over the band currently drawn.
 
 ## Using a personal weather station
 
@@ -144,15 +108,15 @@ own readings instead of the forecast. Enter the station ID and a
 [free contributor API key](https://www.wunderground.com/member/api-keys) in the
 settings.
 
-The request asks for `numericPrecision=decimal`. Without it Weather Underground
-rounds the metric conversion to whole degrees, so a station uploading in
-Fahrenheit would report `18` where the forecast reports `18.3` - the real sensor
-would read less precisely than the model it is meant to improve on.
-
 It is an overlay, not a replacement. A weather station reports sensors only, so
 the condition text and the weather icon always come from Open-Meteo. What your
 station replaces, when it is used, is temperature, humidity, wind, rainfall,
 pressure and UV.
+
+The request asks for `numericPrecision=decimal`. Without it Weather Underground
+rounds the metric conversion to whole degrees, so a station uploading in
+Fahrenheit reports `18` where the forecast reports `17.6` - the real sensor would
+read less precisely than the model it is meant to improve on.
 
 Three rules decide whether the station is used, and all three fail safe back to
 Open-Meteo:
@@ -179,24 +143,79 @@ Both series are recorded every cycle, so the station's history stays warm while
 you are away and a trend is ready the moment you are back in range.
 
 The settings page shows the result of the last station check - which station is
-in use and how far away it is, or why it was not used. Save your settings, wait
-a few seconds for the refresh, then reopen the page to see it.
+in use and how far away it is, or why it was not used. Save your settings, wait a
+few seconds for the refresh, then reopen the page to see it.
 
 When the displayed pressure came from your station, the pressure row shows `PWS`
 where it would otherwise say `Rising`, `Falling` or `Steady` - the arrow already
 gives the direction, so the source is the more useful thing in that slot. Before
-there is any trend to show, which is the case for the first three hours after
-you enable it, the row simply reads `1013mb PWS`. The marker is never absent
-while the station is in use.
+there is any trend to show, which is the case for the first three hours after you
+enable it, the row simply reads `1013mb PWS`. The marker is never absent while
+the station is in use.
+
+## Building
+
+Built with the Pebble SDK (`sdkVersion` 3), targeting **emery** (Pebble Time 2).
+
+```
+pebble build
+pebble install --phone <ip>
+```
+
+Project layout:
+
+```
+package.json                                      app config, UUID, message keys, resources
+src/c/color_weather.c                             the watchface itself
+src/pkjs/app.js                                   companion app - weather fetching and settings
+src/pkjs/index.js                                 PebbleKit JS entry point
+resources/images/shoe_icon.png                    step icon
+resources/fonts/weathericons-regular-webfont.ttf  condition icons (subset at build time)
+```
+
+The C also carries layout branches for `basalt` and `diorite`, but only `emery`
+is in `targetPlatforms` - add the others there to build for them.
+
+Temperature and pressure cross the AppMessage boundary as tenths, so the watch
+can show one decimal place without floating point. The colour band thresholds and
+the "no reading yet" sentinel are in tenths to match.
+
+## Known issues
+
+**The condition icon freezes during a storm warning.** In
+`inbox_received_callback` the icon update sits inside `if (!show_storm_warning)`,
+so once a warning fires the icon stops updating and keeps showing whatever
+preceded it - through exactly the weather you most want to see. Only the text
+needs replacing by the warning; the icon update should move out of that guard.
+
+**There is no stale-data signal.** `s_last_weather_update` is only set when a
+pressure value arrives, and the progress bar clamps at full, so a reading from
+four hours ago looks identical to one from fourteen minutes ago.
+`connection_callback` catches a dropped Bluetooth link, but a live link with
+failing fetches shows nothing at all.
+
+**UV is sent and never displayed.** The JS fetches UV and sends it as key 21;
+the C never reads it. With a personal weather station this is a real measurement
+rather than a grid estimate, so it is worth wiring up - probably shown only at
+UV 3 and above, since the wind/rain row has no width to spare on a value that is
+uninteresting most of the UK year.
+
+**`DYNAMIC_BACKGROUND` (19)** is still declared in `messageKeys` but nothing uses
+it. Left in place so an existing install's stored configuration is not disturbed.
+
+**Note on the UUID.** This is `26561edc-d219-46de-8be2-9833c511e9e2`. Version 1.0
+shipped as `7c6d5e4f-3a2b-1c0d-9e8f-7a6b5c4d3e2f`, so to a watch those are two
+different apps rather than an upgrade.
 
 ## Version history
 
 - **2.3.3** — ask Weather Underground for decimal precision; without it station
   temperatures arrive rounded to whole degrees.
-- **2.3.1** — the settings page now reports the result of the last station
-  check, so a misconfigured station explains itself instead of failing
-  silently.
-- **2.3.0** — temperature and pressure now show one decimal place (18.1C,
+- **2.3.2** — report the length of the stored API key when it is rejected, so a
+  truncated or mis-pasted key is distinguishable from a permissions problem.
+- **2.3.1** — the settings page reports the result of the last station check, so
+  a misconfigured station explains itself instead of failing silently.
+- **2.3.0** — temperature and pressure show one decimal place (17.6C,
   1015.8mb). The pressure row no longer repeats the trend as a word, since the
   arrow already gives the direction and the width pays for the decimal.
 - **2.2.0** — optional Weather Underground personal weather station as a data
@@ -204,3 +223,9 @@ while the station is in use.
 - **2.1.0** — widened the condition-icon font subset from seven glyphs to ten.
   Thunderstorm, night-clear and night-alt-cloudy previously rendered blank.
 - **2.0.0** — colour layout for the Pebble Time 2 (emery).
+
+## Licence
+
+© Digital Urban.
+
+Weather Icons by Erik Flowers — font licensed under SIL OFL 1.1.
