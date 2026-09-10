@@ -651,6 +651,7 @@ Pebble.addEventListener('ready', function(e) {
           temp: metric.temp,             // degrees C
           humidity: obs.humidity,        // percent
           wind: metric.windSpeed,        // km/h, matching Open-Meteo
+          gust: metric.windGust,         // km/h, highest gust of the reporting interval
           precip: metric.precipTotal,    // mm accumulated today
           pressure: metric.pressure,     // hPa
           uv: obs.uv,
@@ -678,13 +679,76 @@ Pebble.addEventListener('ready', function(e) {
     xhr.send();
   }
 
+  // The current observation carries only the gust of the last upload interval.
+  // The day's highest gust lives in the daily summary, which is a second call
+  // against the same key - so it runs only when the station itself answered.
+  function fetchPWSDailySummary(stationId, callback) {
+    var url = 'https://api.weather.com/v2/pws/dailysummary/7day' +
+              '?stationId=' + encodeURIComponent(stationId) +
+              '&format=json&units=m' +
+              '&numericPrecision=decimal' +
+              '&apiKey=' + encodeURIComponent(settings.pws_api_key);
+
+    console.log('[JS] Fetching PWS daily summary for ' + stationId);
+
+    var xhr = new XMLHttpRequest();
+    xhr.timeout = 15000;
+
+    // A missing day max is not worth a status message of its own - the current
+    // observation has already reported on the health of the station.
+    function giveUp(why) {
+      console.log('[JS] PWS daily summary unavailable: ' + why);
+      callback(null);
+    }
+
+    xhr.onreadystatechange = function() {
+      if (xhr.readyState !== 4) return;
+      if (xhr.status < 200 || xhr.status >= 300) { giveUp('HTTP ' + xhr.status); return; }
+
+      try {
+        var data = JSON.parse(xhr.responseText);
+        var days = data.summaries || [];
+        if (!days.length) { giveUp('no summaries returned'); return; }
+
+        // The array is returned oldest first, but rather than trust the order,
+        // take the newest entry and check it really is today - a stale last
+        // element would otherwise show yesterday's gale as this morning's.
+        var newest = null;
+        for (var i = 0; i < days.length; i++) {
+          if (!newest || (days[i].epoch || 0) > (newest.epoch || 0)) newest = days[i];
+        }
+
+        var ageH = newest.epoch ? ((Date.now() - newest.epoch * 1000) / 3600000) : 999;
+        if (ageH > 26) { giveUp('newest summary is ' + Math.round(ageH) + ' hours old'); return; }
+
+        var m = newest.metric || {};
+        // WU spells this field differently between endpoints, so accept both.
+        var high = (typeof m.windgustHigh === 'number') ? m.windgustHigh
+                 : (typeof m.windGustHigh === 'number') ? m.windGustHigh : null;
+
+        if (high === null) { giveUp('no gust high in the summary'); return; }
+
+        console.log('[JS] PWS day max gust: ' + high + ' km/h');
+        callback(high);
+      } catch (ex) {
+        giveUp('could not parse the summary (' + ex + ')');
+      }
+    };
+
+    xhr.ontimeout = function() { giveUp('timed out'); };
+    xhr.onerror = function() { giveUp('network error'); };
+
+    xhr.open('GET', url, true);
+    xhr.send();
+  }
+
   function fetchPressureFromOpenMeteo(lat, lon, locationName, pwsData) {
     // Build API URL to get current data for temperature/pressure/wind, 15-minute forecast for conditions, daily for rainfall
     // We use pressure_msl (Mean Sea Level) instead of surface_pressure to avoid false storm warnings while traveling/changing altitude
     var url = 'https://api.open-meteo.com/v1/forecast?latitude=' + encodeURIComponent(lat) + '&longitude=' + encodeURIComponent(lon) + 
-              '&current=temperature_2m,relative_humidity_2m,wind_speed_10m,pressure_msl,uv_index,is_day' + // Current conditions (including is_day)
+              '&current=temperature_2m,relative_humidity_2m,wind_speed_10m,wind_gusts_10m,pressure_msl,uv_index,is_day' + // Current conditions (including is_day)
               '&minutely_15=weather_code&forecast_minutely_15=1' + // 15-min forecast for conditions only
-              '&daily=precipitation_sum&forecast_days=1' + // Daily accumulated rainfall
+              '&daily=precipitation_sum,wind_gusts_10m_max&forecast_days=1' + // Daily accumulated rainfall and the day's peak gust
               '&timeformat=unixtime&timezone=auto';
     
     console.log('[JS] Fetching Open-Meteo: ' + url);
@@ -712,6 +776,7 @@ Pebble.addEventListener('ready', function(e) {
           var trendStr = undefined;
           var trendTenths = undefined;
           var uvIndex = undefined;
+          var dayGustFromModel = undefined;
           var isDay = 1;
 
           console.log('[JS] Using current data for temperature/pressure/wind, 15-minute forecast for conditions, daily for rainfall');
@@ -731,6 +796,11 @@ Pebble.addEventListener('ready', function(e) {
             if (current.wind_speed_10m !== undefined) {
               windSpeed = current.wind_speed_10m;
             }
+            // Gust is the headline figure, so the row reads the same whether the
+            // numbers came from the station or the model.
+            if (current.wind_gusts_10m !== undefined && current.wind_gusts_10m >= windSpeed) {
+              windSpeed = current.wind_gusts_10m;
+            }
             if (current.uv_index !== undefined) {
               uvIndex = current.uv_index;
             }
@@ -748,6 +818,13 @@ Pebble.addEventListener('ready', function(e) {
           }
             
             // Extract daily accumulated rainfall
+            if (data.daily && data.daily.wind_gusts_10m_max && data.daily.wind_gusts_10m_max.length > 0 &&
+                data.daily.wind_gusts_10m_max[0] !== null) {
+              // Note this is the whole calendar day including the hours still to
+              // come, so early in the morning it is a forecast peak, not a record.
+              dayGustFromModel = data.daily.wind_gusts_10m_max[0];
+            }
+
             if (data.daily && data.daily.precipitation_sum && data.daily.precipitation_sum.length > 0) {
               precipitation = data.daily.precipitation_sum[0];
               console.log('[JS] Daily accumulated rainfall: ' + precipitation + ' mm');
@@ -802,6 +879,18 @@ Pebble.addEventListener('ready', function(e) {
             if (typeof pwsData.temp === 'number') currentTemp = pwsData.temp;
             if (typeof pwsData.humidity === 'number') humidity = pwsData.humidity;
             if (typeof pwsData.wind === 'number') windSpeed = pwsData.wind;
+            // A station in a lull can report a gust below its own average, and a
+            // gust under the wind speed reads as a fault rather than as calm.
+            if (typeof pwsData.gust === 'number' &&
+                (typeof windSpeed !== 'number' || pwsData.gust >= windSpeed)) {
+              windSpeed = pwsData.gust;
+            }
+            // The day max is the headline figure when it is available. It can
+            // only ever be the highest of the three, so it wins outright.
+            if (typeof pwsData.dayGust === 'number' &&
+                (typeof windSpeed !== 'number' || pwsData.dayGust >= windSpeed)) {
+              windSpeed = pwsData.dayGust;
+            }
             if (typeof pwsData.precip === 'number') precipitation = pwsData.precip;
             if (typeof pwsData.uv === 'number') uvIndex = pwsData.uv;
             if (typeof pwsData.pressure === 'number') pressure = pwsData.pressure;
@@ -813,6 +902,10 @@ Pebble.addEventListener('ready', function(e) {
             console.log('[JS] PWS values applied: temp=' + currentTemp + ' pressure=' + pressure);
           } else {
             trendTenths = omTrend;
+            if (typeof dayGustFromModel === 'number' &&
+                (typeof windSpeed !== 'number' || dayGustFromModel >= windSpeed)) {
+              windSpeed = dayGustFromModel;
+            }
           }
 
           if (typeof trendTenths === 'number') {
@@ -861,7 +954,14 @@ Pebble.addEventListener('ready', function(e) {
           // CORRECT: The weather fetch is now INSIDE the callback.
           reverseGeocode(lat, lon, function(locationName) {
             fetchPWSObservation(function(pwsData) {
-              fetchPressureFromOpenMeteo(lat, lon, locationName, pwsData);
+              if (!pwsData || !pwsData.stationId) {
+                fetchPressureFromOpenMeteo(lat, lon, locationName, pwsData);
+                return;
+              }
+              fetchPWSDailySummary(pwsData.stationId, function(dayGust) {
+                if (typeof dayGust === 'number') pwsData.dayGust = dayGust;
+                fetchPressureFromOpenMeteo(lat, lon, locationName, pwsData);
+              });
             });
           });
         },
