@@ -214,7 +214,7 @@ the appstore as **2.3** regardless of the patch number in `package.json`. The
 store cannot tell these builds apart - the settings page prints the full version
 of the JavaScript that is actually running, which can.
 
-
+- **2.4** — wind is now the max wind gust of the day when using Weather Underground.
 - **2.3.5** — the station status line now reports the values actually applied,
   not just which source won.
 - **2.3.4** — show the running version at the top of the settings page, so
